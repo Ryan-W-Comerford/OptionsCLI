@@ -7,8 +7,8 @@ Python-based app to find options contracts that adhere to a configured strategy 
 ### PRE-EARNINGS LONG STRADDLE
 
 * On a high-level this means to buy both call/put options 7-30 days before earnings and to sell the day or the hours leading to the earnings to capitalize on the IV expansion and avoid IV crush.
-* * Low theta to avoid time decay. 
-* * High vega to maximize IV swings.
+    * Low theta to avoid time decay. 
+    * High vega to maximize IV swings.
 
 * Give input strategy as 'longStraddleIV' to use.
 
