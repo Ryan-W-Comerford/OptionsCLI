@@ -12,6 +12,18 @@ Python-based app to find options contracts that adhere to a configured strategy 
 
 * Give input strategy as 'longStraddleIV' to use.
 
+## HOW TO RUN
+
+Use findAll to find all the options that satisfy this strategy.
+```python
+python3 -m app.main findAll longStraddleIV
+```
+
+Use findOne with a ticker to find the options that satisfy this strategy for the exact given ticker.
+```python
+python3 -m app.main findOne longStraddleIV AAPL
+```
+
 ## NEXT STEPS
 
 * The app is abstracted such that any different strategy can be easily added. Will explore adding more strategies in the future.
