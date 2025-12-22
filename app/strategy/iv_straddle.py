@@ -1,6 +1,6 @@
 from app.data.polygon import PolygonProvider
 from app.strategy.strategy import Strategy
-from app.models.models import PaperTrade, StraddleCandidate
+from app.models.models import StraddleCandidate
 from app.config.config import config
 from datetime import date, timedelta
 
@@ -41,30 +41,4 @@ class LongStraddleIVStrategy(Strategy):
             candidates.append(StraddleCandidate(ticker, edate, call, put, iv_rank))
 
         return candidates
-
-    def simulate_trade(self, provider: PolygonProvider, c: StraddleCandidate):
-        entry = c.earnings_date - timedelta(days=25)
-        exit_deadline = c.earnings_date - timedelta(days=config.EXIT_DAYS_BEFORE_EARNINGS)
-        iv_path = provider.get_historical_iv(c.ticker, entry, exit_deadline)
-
-        if len(iv_path) < 5:
-            return None
-
-        pnl = 0
-        prev_iv = iv_path[0]
-        for iv in iv_path[1:]:
-            pnl += (c.call.vega + c.put.vega) * (iv - prev_iv)
-            prev_iv = iv
-            if pnl >= config.TARGET_PNL:
-                break
-
-        return PaperTrade(
-            ticker=c.ticker,
-            entry_date=entry,
-            exit_date=exit_deadline,
-            entry_iv_rank=c.iv_rank,
-            exit_iv_rank=min(config.EXIT_IV_RANK, c.iv_rank + 10),
-            pnl_pct=pnl,
-            exit_reason="simulated",
-        )
 
