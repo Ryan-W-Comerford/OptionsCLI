@@ -1,6 +1,6 @@
-# OptStrat
+# OptionsCLI (IN-PROGRESS)
 
-Python-based app to find options contracts that adhere to a configured strategy using Poylgon.io data.
+CLI to find options contracts that adhere to a configured strategy using a Python-based framework and Poylgon.io data.
 
 ## SUPPORTED STRATEGIES
 
@@ -16,16 +16,21 @@ Python-based app to find options contracts that adhere to a configured strategy 
 
 Ensure the SECRETS_FILE_PATH environment variable is set to the .yaml file containing your polygon api key with the field POLYGON_API_KEY.
 
+To start the CLI use below command.
+```python
+python3 -m app.cli
+```
+
 Use findAll to find all the options that satisfy this strategy.
 ```python
-python3 -m app.main findAll longStraddleIV
+options> findAll longStraddleIV
 ```
 
 Use findOne with a ticker to find the options that satisfy this strategy for the exact given ticker.
 ```python
-python3 -m app.main findOne longStraddleIV AAPL
+options> findOne longStraddleIV AAPL
 ```
 
 ## NEXT STEPS
 
-* The app is abstracted such that any different strategy can be easily added. Will explore adding more strategies in the future.
+* The app is abstracted such that any different strategy can be easily added. I will explore adding more strategies in the future.
