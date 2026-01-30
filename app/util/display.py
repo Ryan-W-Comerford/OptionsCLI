@@ -5,7 +5,7 @@ def print_candidates(candidates: list[StraddleCandidate]):
         print("No candidates found")
         return
 
-    print("LONG STRADDLE IV CANDIDATES")
+    print("CANDIDATES")
     print("=" * 40)
     for c in candidates:
         print(f"Ticker: {c.ticker}")
