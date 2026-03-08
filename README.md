@@ -53,10 +53,11 @@ OptionsCLI tracks every candidate from discovery through resolution.
 ```
 1. findAll / findOne   ->  scan for candidates, auto-saved to DB as "pending"
 2. pending             ->  view all open trades with tickers, strategies, option symbols
-3. analyze             ->  AI analysis of pending trades (Claude + web search)
-4. sync                ->  update current stock prices + resolve post-earnings trades
-5. history             ->  view full track record with IV move, P&L, win/loss
-6. backtest            ->  win rate and avg P&L summary across resolved trades
+3. analyze             ->  quick AI check on all pending trades (fast, free)
+4. analyze deep        ->  full AI research with live web search before entering a trade
+5. sync                ->  update current stock prices + resolve post-earnings trades
+6. history             ->  view full track record with IV move, P&L, win/loss
+7. backtest            ->  win rate and avg P&L summary across resolved trades
 ```
 
 ### Status Lifecycle
@@ -82,9 +83,21 @@ If IV rose 20% from entry to exit (e.g. 0.35 -> 0.42), that's a +20% win. Falls 
 
 ---
 
-## AI Analysis (`analyze`)
+## AI Analysis
 
-The `analyze` command passes all pending trades to Claude with web search enabled. For each trade, Claude searches for recent news, analyst sentiment, historical earnings reactions, and macro conditions — then returns a structured verdict.
+Two modes depending on how much depth you need.
+
+### `analyze` — Fast (Haiku, training knowledge)
+- Model: Claude Haiku
+- No web search — uses Claude's training knowledge of the company, sector, and typical earnings behavior
+- ~10s per ticker, fraction of a cent per call
+- Use daily as a routine check on pending trades
+
+### `analyze deep` — Deep (Sonnet + live web search)
+- Model: Claude Sonnet
+- Searches the web for recent news, analyst upgrades/downgrades, earnings previews, macro conditions
+- ~60s per ticker, ~$0.02 per ticker
+- Use the day before you're considering entering a trade
 
 **Example output:**
 ```
@@ -104,7 +117,7 @@ The `analyze` command passes all pending trades to Claude with web search enable
 
 **Fields returned per trade:** signal (Strong / Moderate / Weak / Avoid), confidence %, summary, catalysts, risks, IV expansion likelihood, suggested action (Enter / Monitor / Skip).
 
-Requires `ANTHROPIC_API_KEY` in `secrets.yaml`. Each ticker costs roughly $0.01–0.02 in API usage.
+Requires `ANTHROPIC_API_KEY` in `secrets.yaml`. Get your key at **console.anthropic.com** — new accounts receive free starter credits. The $5 starter credit is a one-time prepaid balance, not a subscription — API calls stop if you run out unless you manually top up or enable auto-reload.
 
 ---
 
@@ -119,7 +132,7 @@ pip install -r requirements.txt
 ```yaml
 MASSIVE_API_KEY:    your_massive_api_key_here
 ALPHA_API_KEY:      your_alphavantage_key_here
-ANTHROPIC_API_KEY:  sk-ant-...                    # required for analyze command
+ANTHROPIC_API_KEY:  sk-ant-...                    # required for analyze / analyze deep
 TRADE_DB_PATH:      /path/to/your/trades.db       # optional, defaults to app/data/history/trades.db
 ```
 
@@ -139,13 +152,13 @@ source ~/.zshrc
 python3 -m app.cli
 ```
 
-**5. Keep `trades.db` out of git**
-
-Add to `.gitignore`, then untrack if already committed:
+**5. Keep sensitive files out of git**
 ```bash
 echo "app/data/history/trades.db" >> .gitignore
-git rm --cached app/data/history/trades.db
-git commit -m "untrack trades.db"
+echo "**/secrets.yaml" >> .gitignore
+git rm --cached app/data/history/trades.db 2>/dev/null || true
+git rm --cached secrets.yaml 2>/dev/null || true
+git commit -m "untrack sensitive files"
 ```
 
 ---
@@ -159,7 +172,8 @@ git commit -m "untrack trades.db"
 | `findAll ivRankScreen` | IV rank sweep across full watchlist |
 | `findOne longStraddleIV AAPL` | Scan a single ticker with any strategy |
 | `pending` | Show all open trades — ticker, strategy, earnings date, option symbols |
-| `analyze` | AI analysis of all pending trades (Claude + web search) |
+| `analyze` | Quick AI analysis — Haiku, training knowledge (~10s/ticker) |
+| `analyze deep` | Full AI research — Sonnet + live web search (~60s/ticker, ~$0.02/ticker) |
 | `sync` | Update current prices + resolve post-earnings trades |
 | `history` | Show all saved trades and win/loss stats |
 | `backtest longStraddleIV` | Win rate and P&L summary from resolved trades |
@@ -171,14 +185,13 @@ git commit -m "untrack trades.db"
 
 ## Data Sources & API Keys
 
-| Data | Source | Key | Min Plan |
+| Data | Source | Key | Cost |
 |---|---|---|---|
 | Stock prices + options chain | Massive.com | `MASSIVE_API_KEY` | $29/mo |
 | Live bid/ask quotes | Massive.com | `MASSIVE_API_KEY` | $199/mo |
 | Earnings calendar | Alpha Vantage | `ALPHA_API_KEY` | Free |
-| AI trade analysis | Anthropic Claude | `ANTHROPIC_API_KEY` | Pay-per-use (~$0.01/ticker) |
-
-Get your Anthropic API key at **console.anthropic.com** — new accounts receive free starter credits.
+| AI analysis (fast) | Claude Haiku | `ANTHROPIC_API_KEY` | ~$0.0003/ticker |
+| AI analysis (deep) | Claude Sonnet + web search | `ANTHROPIC_API_KEY` | ~$0.02/ticker |
 
 ---
 
@@ -192,7 +205,7 @@ app/
 ├── core/
 │   └── app.py              App orchestration and strategy map
 ├── analysis/
-│   └── analyzer.py         AI trade analysis via Claude API + web search
+│   └── analyzer.py         AI trade analysis (Haiku fast / Sonnet deep)
 ├── data/
 │   ├── provider.py         Abstract base provider
 │   ├── massive.py          Massive.com market data
@@ -219,6 +232,7 @@ app/
 - Historical IV uses annualized realized volatility (20-day rolling log returns) — same scale as options IV
 - `ivRankScreen` does not fetch options chains — fast and cheap on API calls
 - All DB schema changes are auto-migrated on startup — existing databases update silently
-- `trades.db` should be in `.gitignore` — contains personal trade history
+- `trades.db` and `secrets.yaml` should both be in `.gitignore`
 - Up/down arrow key history is supported at the `options>` prompt (macOS/Linux)
+- Anthropic API rate limits are per account tier — new accounts are limited to 30k tokens/min, which increases automatically as you spend more
 - This tool is for research and screening purposes only, not financial advice

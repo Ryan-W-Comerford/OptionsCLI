@@ -173,24 +173,30 @@ def start_backtest(commands: list[str]) -> None:
     print_backtest(resolved)
 
 
-def start_analyze(_commands: list[str]) -> None:
+def start_analyze(commands: list[str]) -> None:
     """
     AI-powered analysis of all pending trades.
-    Calls Claude with web search to assess each trade's likelihood of success,
-    key catalysts, risks, and a suggested action (Enter / Monitor / Skip).
+
+    analyze       — Haiku, no web search. Fast, cheap. (~10s/ticker)
+    analyze deep  — Sonnet + web search. Live news and research. (~60s/ticker)
     """
     from app.analysis.analyzer import analyze_pending
     from app.util.display import print_analysis
+
+    deep = len(commands) > 1 and commands[1].lower() == "deep"
 
     pending = app.store.get_pending()
     if not pending:
         print(f"\n  {C.YELLOW}No pending trades to analyze. Run 'findAll' first.{C.RESET}\n")
         return
 
-    print(f"\n{C.DIM}  Analyzing {len(pending)} pending trade(s) with Claude + web search...{C.RESET}")
-    print(f"{C.DIM}  This may take 15-30 seconds per ticker.{C.RESET}\n")
+    mode_label = "Sonnet + web search" if deep else "Haiku, training knowledge"
+    secs = 60 if deep else 10
+    est  = (10 if deep else 3) + len(pending) * secs
+    print(f"\n{C.DIM}  Analyzing {len(pending)} pending trade(s) [{mode_label}]...{C.RESET}")
+    print(f"{C.DIM}  Est. {est}s (~{secs}s per ticker).{C.RESET}\n")
 
-    results = analyze_pending(pending, verbose=True)
+    results = analyze_pending(pending, verbose=True, deep=deep)
     print_analysis(results)
 
 
@@ -268,7 +274,8 @@ HELP_TEXT = f"""
     {C.CYAN}sync{C.RESET}                           Update prices + resolve post-earnings trades
     {C.CYAN}history{C.RESET}                         Show all trades and win/loss stats
     {C.CYAN}backtest{C.RESET}  <strategy>            Replay historical earnings (past 1yr)
-    {C.CYAN}analyze{C.RESET}                         AI analysis of pending trades (Claude + web search)
+    {C.CYAN}analyze{C.RESET}                         AI analysis — fast, training knowledge only
+    {C.CYAN}analyze deep{C.RESET}                    AI analysis — Sonnet + live web search (~$0.02/ticker)
     {C.CYAN}pending{C.RESET}                         Show all pending trades
     {C.CYAN}watchlist{C.RESET}                       Show configured watchlist tickers
     {C.CYAN}help{C.RESET}                            Show this message

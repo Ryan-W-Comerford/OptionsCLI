@@ -16,6 +16,7 @@ class Config:
 
         self.MASSIVE_API_KEY: str = key_file["MASSIVE_API_KEY"]
         self.ALPHA_API_KEY: str = key_file["ALPHA_API_KEY"]
+        self.ANTHROPIC_API_KEY: str = key_file.get("ANTHROPIC_API_KEY", "")
 
         # High-beta S&P 500 stocks with liquid options and reliable IV expansion into earnings.
         # Criteria: beta > 1.2, avg options volume > 10k/day, quarterly earnings cadence.

@@ -1,23 +1,24 @@
 """
 TradeAnalyzer — AI-powered analysis of pending straddle/strangle candidates.
 
-For each pending trade, fetches recent news + market context via Claude's
-web search tool, then asks Claude to assess:
-  - Likelihood of IV expansion before earnings
-  - Catalysts that could drive a big move
-  - Risks that could suppress the move
-  - Overall signal strength (Strong / Moderate / Weak / Avoid)
+Two modes:
+  analyze      — Haiku, no web search. Fast, cheap (~$0.0003/ticker, ~10s).
+                 Uses Claude's training knowledge. Good for daily quick checks.
+  analyze deep — Sonnet + web search. Live news, analyst sentiment, recent filings.
+                 (~$0.02/ticker, ~60s). Use before actually entering a trade.
 """
 from __future__ import annotations
 
 import json
 import sqlite3
+import time
 import urllib.request
 import urllib.error
 
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-MODEL = "claude-sonnet-4-20250514"
+MODEL_FAST = "claude-haiku-4-5-20251001"
+MODEL_DEEP = "claude-sonnet-4-20250514"
 
 SYSTEM_PROMPT = """You are an expert options trader specializing in pre-earnings volatility strategies.
 You analyze straddle and strangle candidates and assess the likelihood of profitable IV expansion.
@@ -51,17 +52,25 @@ TRADE DETAILS:
   Current Price:    {stock_price_current}
   Scanned On:       {scan_date}
 
-Please use your web search tool to research:
+{research_instruction}
+
+Return your JSON analysis."""
+
+RESEARCH_INSTRUCTION_FAST = """Based on your training knowledge, assess:
+1. This company's typical earnings reaction (historical avg move %)
+2. Known business model risks and strengths relevant to this earnings
+3. Sector conditions and macro factors that affect IV expansion
+4. Whether the IV rank and DTE window suggest a good entry"""
+
+RESEARCH_INSTRUCTION_DEEP = """Use your web search tool to research:
 1. Recent news and developments for {ticker} in the past 2 weeks
 2. Known earnings catalysts — product launches, guidance, analyst sentiment
-3. Typical historical earnings move % for {ticker} (how much does it usually move?)
+3. Typical historical earnings move % for {ticker}
 4. Sector headwinds or tailwinds right now
-5. Any macro conditions that could affect volatility into this earnings date
-
-Based on all of this, return your JSON analysis."""
+5. Any macro conditions that could affect volatility into this earnings date"""
 
 
-def _build_prompt(trade: sqlite3.Row) -> str:
+def _build_prompt(trade: sqlite3.Row, deep: bool = False) -> str:
     cost = f"${trade['total_cost']:.2f}" if trade["total_cost"] else "n/a (no bid/ask data on current plan)"
     current = (
         f"${trade['stock_price_current']:.2f} (as of {trade['stock_price_last_sync']})"
@@ -69,6 +78,11 @@ def _build_prompt(trade: sqlite3.Row) -> str:
         else "not yet synced — run 'sync' first"
     )
     current_iv = trade["current_iv"] or 0.0
+    research = (
+        RESEARCH_INSTRUCTION_DEEP.format(ticker=trade["ticker"])
+        if deep
+        else RESEARCH_INSTRUCTION_FAST
+    )
     return USER_PROMPT_TEMPLATE.format(
         ticker=trade["ticker"],
         strategy=trade["strategy"],
@@ -85,28 +99,38 @@ def _build_prompt(trade: sqlite3.Row) -> str:
         stock_price_at_scan=trade["stock_price_at_scan"] or 0.0,
         stock_price_current=current,
         scan_date=trade["scan_date"],
+        research_instruction=research,
     )
 
 
-def _call_claude(prompt: str) -> dict:
+def _call_claude(prompt: str, deep: bool = False) -> dict:
     """
-    Call Claude API with web search enabled.
-    Claude will search for news/context then return structured JSON analysis.
+    Call Claude API.
+    deep=False: Haiku, no web search — fast and cheap.
+    deep=True:  Sonnet + web search — live research, slower, costs more.
     """
-    payload = json.dumps({
-        "model": MODEL,
-        "max_tokens": 1500,
-        "system": SYSTEM_PROMPT,
-        "tools": [{"type": "web_search_20250305", "name": "web_search"}],
-        "messages": [{"role": "user", "content": prompt}],
-    }).encode("utf-8")
+    from app.config.config import config
+    api_key = config.ANTHROPIC_API_KEY
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY not set in secrets.yaml")
 
+    body = {
+        "model":      MODEL_DEEP if deep else MODEL_FAST,
+        "max_tokens": 1500 if deep else 1000,
+        "system":     SYSTEM_PROMPT,
+        "messages":   [{"role": "user", "content": prompt}],
+    }
+    if deep:
+        body["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
+
+    payload = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
         ANTHROPIC_API_URL,
         data=payload,
         headers={
-            "Content-Type": "application/json",
+            "Content-Type":      "application/json",
             "anthropic-version": "2023-06-01",
+            "x-api-key":         api_key,
         },
         method="POST",
     )
@@ -114,33 +138,57 @@ def _call_claude(prompt: str) -> dict:
     with urllib.request.urlopen(req, timeout=90) as resp:
         data = json.loads(resp.read().decode("utf-8"))
 
-    # Response may contain tool_use + tool_result blocks alongside text — extract text only
     text = " ".join(
         block["text"]
         for block in data.get("content", [])
         if block.get("type") == "text"
     ).strip()
-
-    # Strip any accidental markdown fences Claude might add
     text = text.replace("```json", "").replace("```", "").strip()
-
     return json.loads(text)
 
 
-def analyze_pending(pending: list[sqlite3.Row], verbose: bool = True) -> list[dict]:
+def analyze_pending(
+    pending: list[sqlite3.Row],
+    verbose: bool = True,
+    deep: bool = False,
+) -> list[dict]:
     """
     Run AI analysis on a list of pending trades.
-    Returns list of result dicts — one per trade, including error details if any failed.
+    deep=False: fast Haiku analysis (~10s/ticker, ~$0.0003/ticker)
+    deep=True:  Sonnet + web search (~60s/ticker, ~$0.02/ticker)
     """
+    # Deduplicate by (ticker, earnings_date) — same ticker can appear for straddle + strangle
+    seen = set()
+    unique_pending = []
+    for trade in pending:
+        key = (trade["ticker"], trade["earnings_date"])
+        if key not in seen:
+            seen.add(key)
+            unique_pending.append(trade)
+    pending = unique_pending
+
+    delay_between = 60 if deep else 10
+    delay_initial  = 10 if deep else 3
+
     results = []
     for trade in pending:
         ticker = trade["ticker"]
         if verbose:
-            print(f"    🔍 Researching {ticker} (earnings {trade['earnings_date']})...", flush=True)
+            mode = "deep research" if deep else "quick analysis"
+            print(f"    🔍 {ticker} ({mode}, earnings {trade['earnings_date']})...", flush=True)
+        time.sleep(delay_between if results else delay_initial)
         try:
-            prompt = _build_prompt(trade)
-            analysis = _call_claude(prompt)
-            # Ensure core fields always present
+            prompt = _build_prompt(trade, deep=deep)
+            try:
+                analysis = _call_claude(prompt, deep=deep)
+            except urllib.error.HTTPError as retry_e:
+                if retry_e.code == 429:
+                    wait = 90 if deep else 30
+                    print(f"    ⏳ Rate limited — waiting {wait}s then retrying {ticker}...", flush=True)
+                    time.sleep(wait)
+                    analysis = _call_claude(prompt, deep=deep)
+                else:
+                    raise
             analysis.setdefault("ticker", ticker)
             analysis.setdefault("earnings_date", trade["earnings_date"])
             analysis.setdefault("days_to_earnings", trade["days_to_earnings"])
