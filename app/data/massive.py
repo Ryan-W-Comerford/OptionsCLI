@@ -1,3 +1,4 @@
+from __future__ import annotations
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 
@@ -83,7 +84,23 @@ class MassiveProvider(Provider):
                 ))
         return chain
 
+    def get_closing_price(self, ticker: str, on_date: date) -> float | None:
+        """Return the closing price on or after on_date (handles weekends/holidays)."""
+        with self.get_client() as client:
+            aggs = list(client.list_aggs(
+                ticker,
+                multiplier=1,
+                timespan="day",
+                from_=str(on_date),
+                to=str(on_date + timedelta(days=4)),
+                limit=5,
+            ))
+        return float(aggs[0].close) if aggs else None
+
     def get_historical_iv(self, ticker: str, start: date, end: date) -> list[float]:
+        return self._get_historical_iv_range(ticker, start, end)
+
+    def _get_historical_iv_range(self, ticker: str, start: date, end: date) -> list[float]:
         import math
         closes = []
         with self.get_client() as client:
@@ -111,6 +128,13 @@ class MassiveProvider(Provider):
             variance = sum((r - mean) ** 2 for r in sample) / (window - 1)
             iv_series.append(math.sqrt(variance * 252))  # annualize
         return iv_series
+
+    def get_iv_as_of(self, ticker: str, as_of: date):
+        """Return the most recent realized IV ending on as_of (20-day window)."""
+        from datetime import timedelta
+        start = as_of - timedelta(days=60)  # 60 calendar days ensures 20+ trading days
+        series = self._get_historical_iv_range(ticker, start, as_of)
+        return series[-1] if series else None
 
     def get_iv_rank(self, iv_series: list[float], current_iv: float) -> float:
         if not iv_series:

@@ -7,7 +7,8 @@ warnings.filterwarnings("ignore", message=".*NotOpenSSLWarning.*")
 warnings.filterwarnings("ignore", category=Warning, module="urllib3")
 
 from app.core.app import OptionsApp
-from app.util.display import Colors as C, print_candidates, print_history
+from app.config.config import config
+from app.util.display import Colors as C, print_candidates, print_strangle_candidates, print_iv_screen, print_history
 
 BANNER = C.CYAN + r"""
  ██████╗ ██████╗ ████████╗██╗ ██████╗ ███╗   ██╗███████╗ ██████╗██╗     ██╗
@@ -27,7 +28,7 @@ def _save_candidates(candidates, strategy_name: str) -> None:
     for c in candidates:
         try:
             price = app.market.get_stock_price(c.ticker)
-            inserted = app.store.save_candidate(c, stock_price=price)
+            inserted = app.store.save_candidate(c, stock_price=price, strategy=strategy_name)
             if inserted:
                 saved += 1
         except Exception as e:
@@ -36,15 +37,29 @@ def _save_candidates(candidates, strategy_name: str) -> None:
         print(f"  {C.DIM}Saved {saved} new candidate(s) to trade history.{C.RESET}")
 
 
+def _display(strategy_name: str, candidates: list) -> None:
+    """Route candidates to the correct display function by strategy."""
+    if strategy_name == "longStrangleIV":
+        print_strangle_candidates(candidates)
+    elif strategy_name == "ivRankScreen":
+        print_iv_screen(candidates)
+    else:
+        print_candidates(candidates)
+
+
 def start_findall(commands: list[str]) -> None:
     if len(commands) != 2:
         raise ValueError("Usage: findAll <strategy>")
     strategy = app.get_strategy(commands[1])
-    count = app.upcoming_earnings_count()
-    print(f"\n{C.DIM}  Scanning {count} upcoming earnings events on watchlist...{C.RESET}")
-    candidates = strategy.generate_candidates(app.market, app.earnings)
-    print_candidates(candidates)
-    if candidates:
+    if commands[1] == "ivRankScreen":
+        print(f"\n{C.DIM}  Checking IV rank across {len(config.STOCKS)} watchlist tickers...{C.RESET}")
+        candidates = strategy.generate_candidates(app.market, app.earnings)
+    else:
+        count = app.upcoming_earnings_count()
+        print(f"\n{C.DIM}  Scanning {count} upcoming earnings events on watchlist...{C.RESET}")
+        candidates = strategy.generate_candidates(app.market, app.earnings)
+    _display(commands[1], candidates)
+    if candidates and commands[1] != "ivRankScreen":
         _save_candidates(candidates, commands[1])
 
 
@@ -55,40 +70,74 @@ def start_findone(commands: list[str]) -> None:
     ticker = commands[2].upper()
     print(f"\n{C.DIM}  Scanning {ticker}...{C.RESET}")
     candidates = strategy.generate_candidates(app.market, app.earnings, ticker_filter=ticker)
-    print_candidates(candidates)
-    if candidates:
+    _display(commands[1], candidates)
+    if candidates and commands[1] != "ivRankScreen":
         _save_candidates(candidates, commands[1])
 
 
 def start_resolve(_commands: list[str]) -> None:
-    """Fetch post-earnings prices for all pending trades and resolve them."""
+    """
+    Resolve pending trades using IV expansion as the P&L proxy.
+
+    Exit point = 2 trading days before earnings (when IV is near its peak).
+    This matches the actual strategy — we sell before earnings to avoid IV crush,
+    not after. P&L = % change in realized vol from scan date to exit date.
+
+    Falls back to stock move vs breakeven if IV data is unavailable.
+    """
     pending = app.store.get_pending()
     if not pending:
         print(f"\n  {C.DIM}No pending trades to resolve.{C.RESET}\n")
         return
 
-    from datetime import date
+    from datetime import date, timedelta
     today = date.today()
     resolved = 0
 
     print(f"\n{C.DIM}  Resolving {len(pending)} pending trade(s)...{C.RESET}\n")
     for trade in pending:
         edate = date.fromisoformat(trade["earnings_date"])
+        scan_date = date.fromisoformat(trade["scan_date"])
+
+        # Need earnings to have passed so we can look back at the exit window
         if edate >= today:
             print(f"  {C.DIM}{trade['ticker']} — earnings on {edate}, not yet passed. Skipping.{C.RESET}")
             continue
+
         try:
-            current_price = app.market.get_stock_price(trade["ticker"])
+            # Exit = 2 trading days before earnings (approximate: 2 calendar days back,
+            # get_closing_price has a 4-day forward buffer so weekends are handled)
+            exit_date = edate - timedelta(days=2)
+
+            exit_price = app.market.get_closing_price(trade["ticker"], exit_date)
+            if exit_price is None:
+                print(f"  {C.YELLOW}{trade['ticker']} — no exit price found around {exit_date}. Skipping.{C.RESET}")
+                continue
+
+            # IV at entry — fetch realized vol window ending on scan date
+            iv_at_entry = app.market.get_iv_as_of(trade["ticker"], as_of=scan_date)
+            # IV at exit — fetch realized vol window ending on exit date
+            iv_at_exit  = app.market.get_iv_as_of(trade["ticker"], as_of=exit_date)
+
             status = app.store.resolve_trade(
                 trade_id=trade["id"],
-                stock_price_at_earnings=current_price,
-                stock_price_at_scan=trade["stock_price_at_scan"],
-                total_cost=trade["total_cost"],
+                iv_at_entry=iv_at_entry or 0.0,
+                iv_at_exit=iv_at_exit or 0.0,
+                total_cost=trade["total_cost"] or 0.0,
+                stock_price_at_exit=exit_price,
+                stock_price_at_scan=trade["stock_price_at_scan"] or 0.0,
             )
-            move = abs(current_price - trade["stock_price_at_scan"]) / trade["stock_price_at_scan"] * 100
+
+            # Display
+            iv_str = (
+                f"IV {iv_at_entry:.3f} → {iv_at_exit:.3f}"
+                if iv_at_entry and iv_at_exit
+                else "no IV data"
+            )
             icon = "✅" if status == "resolved_win" else ("❓" if status == "unresolvable" else "❌")
-            print(f"  {icon} {C.BOLD}{trade['ticker']}{C.RESET}  move={move:.1f}%  status={status}")
+            print(f"  {icon} {C.BOLD}{trade['ticker']}{C.RESET}  exit={exit_date}  {iv_str}  status={status}")
             resolved += 1
+
         except Exception as e:
             print(f"  {C.YELLOW}Could not resolve {trade['ticker']}: {e}{C.RESET}")
 
@@ -153,7 +202,9 @@ HELP_TEXT = f"""
     {C.CYAN}exit{C.RESET}                            Quit
 
 {C.BOLD}  Available strategies:{C.RESET}
-    {C.YELLOW}longStraddleIV{C.RESET}  Pre-earnings IV expansion straddle
+    {C.YELLOW}longStraddleIV{C.RESET}  Pre-earnings ATM straddle (buy call + put at strike)
+    {C.YELLOW}longStrangleIV{C.RESET}  Pre-earnings OTM strangle (cheaper, needs bigger move)
+    {C.YELLOW}ivRankScreen{C.RESET}   IV rank alert across full watchlist (no earnings needed)
 """
 
 if __name__ == "__main__":

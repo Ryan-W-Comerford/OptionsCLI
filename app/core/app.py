@@ -3,10 +3,14 @@ from app.data.alpha_vantage import AlphaProvider
 from app.data.massive import MassiveProvider
 from app.data.trade_store import TradeStore
 from app.strategy.iv_straddle import LongStraddleIVStrategy
+from app.strategy.iv_strangle import LongStrangleIVStrategy
+from app.strategy.iv_rank_screen import IVRankScreenStrategy
 from app.strategy.strategy import Strategy
 
 strategy_map = {
     "longStraddleIV": LongStraddleIVStrategy,
+    "longStrangleIV": LongStrangleIVStrategy,
+    "ivRankScreen":   IVRankScreenStrategy,
 }
 
 

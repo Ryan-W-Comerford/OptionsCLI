@@ -93,9 +93,11 @@ def print_history(trades: list, stats: dict) -> None:
         pnl  = f"{t['pnl_estimate']:+.1f}%" if t["pnl_estimate"] is not None else "—"
         cost = f"${t['total_cost']:.2f}" if t["total_cost"] else "n/a"
 
+        strategy_tag = f"{C2.DIM}[{t['strategy']}]{C2.RESET} " if t['strategy'] else ""
         print(
             f"  {C2.BOLD}{t['ticker']:<6}{C2.RESET} "
             f"{C2.DIM}{t['earnings_date']}{C2.RESET}  "
+            f"{strategy_tag}"
             f"IV {t['iv_rank']:.0f}  "
             f"cost={cost}  move={move}  be={be}  pnl={pnl}  {icon}"
         )
@@ -146,11 +148,74 @@ def print_backtest(trades: list) -> None:
         be   = f"{t['breakeven_pct']:.1f}%"   if t["breakeven_pct"]   is not None else "—"
         pnl  = f"{t['pnl_estimate']:+.1f}%"   if t["pnl_estimate"]    is not None else "—"
         color = C2.GREEN if t["status"] == "resolved_win" else C2.RED
+        strat = f" {C2.DIM}{t['strategy']}{C2.RESET}" if t['strategy'] else ""
         print(
             f"  {C2.BOLD}{t['ticker']:<7}{C2.RESET}"
             f" {t['earnings_date']:>10}"
             f" {move:>7} {be:>7}"
             f" {color}{pnl:>8}{C2.RESET}"
-            f"  {C2.DIM}{t['status']}{C2.RESET}"
+            f"{strat}"
         )
+    print()
+
+
+def print_strangle_candidates(candidates: list) -> None:
+    C2 = Colors
+    if not candidates:
+        print(f"\n{C2.YELLOW}  No candidates found matching the strategy criteria.{C2.RESET}\n")
+        return
+
+    print(f"\n{C2.BOLD}{C2.CYAN}  STRANGLE CANDIDATES{C2.RESET}  {C2.DIM}({len(candidates)} found, sorted by IV Rank){C2.RESET}")
+    print(f"  {C2.CYAN}{'═' * 58}{C2.RESET}")
+
+    for c in sorted(candidates, key=lambda c: c.iv_rank, reverse=True):
+        ivr_color   = _iv_rank_color(c.iv_rank)
+        ratio_color = _ratio_color(c.vega_theta_ratio)
+        cost_str    = f"${c.total_cost:.2f}" if c.total_cost > 0 else f"{C2.DIM}n/a{C2.RESET}"
+
+        print(f"  {C2.BOLD}{C2.WHITE}{c.ticker}{C2.RESET}")
+        print(
+            f"    Earnings    {C2.BOLD}{c.earnings_date}{C2.RESET}"
+            f"  {C2.DIM}({c.days_to_earnings}d away){C2.RESET}"
+        )
+        print(
+            f"    IV Rank     {ivr_color}{C2.BOLD}{c.iv_rank:.1f}{C2.RESET}"
+            f"    Vega/Theta  {ratio_color}{C2.BOLD}{c.vega_theta_ratio:.2f}x{C2.RESET}"
+            f"    Est. Cost   {C2.BOLD}{cost_str}{C2.RESET}"
+        )
+        print(
+            f"    {C2.GREEN}CALL{C2.RESET}  {c.call.symbol:<28}"
+            f"  Δ {c.call.delta:+.2f}  strike={c.call.strike}  OI {c.call.open_interest:,}"
+        )
+        print(
+            f"    {C2.RED}PUT{C2.RESET}   {c.put.symbol:<28}"
+            f"  Δ {c.put.delta:+.2f}  strike={c.put.strike}  OI {c.put.open_interest:,}"
+        )
+        print(f"  {C2.DIM}  {'─' * 56}{C2.RESET}")
+
+    print()
+
+
+def print_iv_screen(alerts: list) -> None:
+    C2 = Colors
+    if not alerts:
+        print(f"\n{C2.YELLOW}  No tickers above IV rank threshold.{C2.RESET}\n")
+        return
+
+    print(f"\n{C2.BOLD}{C2.CYAN}  IV RANK SCREEN{C2.RESET}  {C2.DIM}({len(alerts)} elevated, sorted by IV Rank){C2.RESET}")
+    print(f"  {C2.CYAN}{'═' * 58}{C2.RESET}")
+    print(f"  {C2.DIM}{'TICKER':<8} {'SPOT':>8} {'IV RANK':>9} {'CURR IV':>9} {'52W LOW':>9} {'52W HIGH':>9}{C2.RESET}")
+    print(f"  {C2.DIM}{'─' * 58}{C2.RESET}")
+
+    for a in alerts:
+        ivr_color = _iv_rank_color(a.iv_rank)
+        print(
+            f"  {C2.BOLD}{a.ticker:<8}{C2.RESET}"
+            f" ${a.spot:>8.2f}"
+            f"  {ivr_color}{C2.BOLD}{a.iv_rank:>6.1f}{C2.RESET}"
+            f"  {a.current_iv:>9.3f}"
+            f"  {a.iv_52w_low:>9.3f}"
+            f"  {a.iv_52w_high:>9.3f}"
+        )
+
     print()

@@ -1,5 +1,5 @@
 """
-TradeStore — SQLite persistence for straddle candidates.
+TradeStore — SQLite persistence for straddle/strangle candidates.
 
 Status lifecycle:
   pending      → candidate found by scanner, awaiting earnings
@@ -10,10 +10,8 @@ Status lifecycle:
 """
 import sqlite3
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
-
-from app.models.models import StraddleCandidate
 
 
 class TradeStore:
@@ -21,6 +19,7 @@ class TradeStore:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
+        self._migrate()
 
     @contextmanager
     def _conn(self):
@@ -38,6 +37,7 @@ class TradeStore:
                 CREATE TABLE IF NOT EXISTS trades (
                     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
                     ticker              TEXT NOT NULL,
+                    strategy            TEXT NOT NULL DEFAULT 'longStraddleIV',
                     scan_date           TEXT NOT NULL,
                     earnings_date       TEXT NOT NULL,
                     days_to_earnings    INTEGER,
@@ -79,6 +79,8 @@ class TradeStore:
                     actual_move_pct          REAL,
                     breakeven_pct            REAL,
                     pnl_estimate             REAL,
+                    iv_at_exit               REAL,
+                    pnl_method               TEXT,
                     resolved_date            TEXT,
                     notes                    TEXT,
 
@@ -87,10 +89,24 @@ class TradeStore:
                 )
             """)
 
+    def _migrate(self) -> None:
+        """Add new columns to existing DBs without breaking old data."""
+        with self._conn() as conn:
+            existing = {row[1] for row in conn.execute("PRAGMA table_info(trades)")}
+            if "strategy" not in existing:
+                conn.execute(
+                    "ALTER TABLE trades ADD COLUMN strategy TEXT NOT NULL DEFAULT 'longStraddleIV'"
+                )
+            if "iv_at_exit" not in existing:
+                conn.execute("ALTER TABLE trades ADD COLUMN iv_at_exit REAL")
+            if "pnl_method" not in existing:
+                conn.execute("ALTER TABLE trades ADD COLUMN pnl_method TEXT")
+
     def save_candidate(
         self,
-        candidate: StraddleCandidate,
+        candidate,
         stock_price: float,
+        strategy: str = "longStraddleIV",
     ) -> bool:
         """Insert candidate. Returns True if inserted, False if duplicate."""
         c = candidate
@@ -99,7 +115,7 @@ class TradeStore:
             try:
                 conn.execute("""
                     INSERT INTO trades (
-                        ticker, scan_date, earnings_date, days_to_earnings,
+                        ticker, strategy, scan_date, earnings_date, days_to_earnings,
                         iv_rank, vega_theta_ratio, current_iv,
                         call_symbol, call_strike, call_expiry, call_delta,
                         call_theta, call_vega, call_iv, call_ask, call_oi,
@@ -107,10 +123,10 @@ class TradeStore:
                         put_theta, put_vega, put_iv, put_ask, put_oi,
                         total_cost, stock_price_at_scan
                     ) VALUES (
-                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                        ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
                     )
                 """, (
-                    c.ticker, str(date.today()), str(c.earnings_date), c.days_to_earnings,
+                    c.ticker, strategy, str(date.today()), str(c.earnings_date), c.days_to_earnings,
                     c.iv_rank, c.vega_theta_ratio, current_iv,
                     c.call.symbol, c.call.strike, str(c.call.expiration), c.call.delta,
                     c.call.theta, c.call.vega, c.call.iv, c.call.ask, c.call.open_interest,
@@ -132,23 +148,43 @@ class TradeStore:
     def resolve_trade(
         self,
         trade_id: int,
-        stock_price_at_earnings: float,
-        stock_price_at_scan: float,
+        iv_at_entry: float,
+        iv_at_exit: float,
         total_cost: float,
+        stock_price_at_exit: float,
+        stock_price_at_scan: float,
     ) -> str:
-        """Resolve a pending trade. Returns the new status."""
-        actual_move_pct = abs(stock_price_at_earnings - stock_price_at_scan) / stock_price_at_scan * 100
+        """
+        Resolve a pending trade using IV expansion as the P&L proxy.
 
-        if total_cost <= 0 or stock_price_at_scan <= 0:
-            status = "unresolvable"
+        pnl_method = 'iv_expansion':
+            P&L estimated as % change in IV from entry to exit.
+            Reflects the actual straddle value change since both legs gain
+            value as IV rises into earnings.
+
+        Falls back to stock move vs breakeven if IV data unavailable.
+        """
+        pnl_method = "iv_expansion"
+        actual_move_pct = abs(stock_price_at_exit - stock_price_at_scan) / stock_price_at_scan * 100
+
+        if iv_at_entry > 0 and iv_at_exit > 0:
+            # Primary: IV expansion proxy — % change in IV from entry to exit
+            pnl_estimate = (iv_at_exit - iv_at_entry) / iv_at_entry * 100
+            status = "resolved_win" if pnl_estimate > 0 else "resolved_loss"
             breakeven_pct = None
-            pnl_estimate = None
-            notes = "No cost data — enter manually to resolve"
-        else:
+            notes = f"IV {iv_at_entry:.3f} → {iv_at_exit:.3f}"
+        elif total_cost > 0 and stock_price_at_scan > 0:
+            # Fallback: stock move vs breakeven
+            pnl_method = "move_vs_breakeven"
             breakeven_pct = (total_cost / stock_price_at_scan) * 100
             pnl_estimate = actual_move_pct - breakeven_pct
             status = "resolved_win" if pnl_estimate > 0 else "resolved_loss"
             notes = None
+        else:
+            status = "unresolvable"
+            breakeven_pct = None
+            pnl_estimate = None
+            notes = "No IV or cost data available"
 
         with self._conn() as conn:
             conn.execute("""
@@ -158,12 +194,15 @@ class TradeStore:
                     actual_move_pct = ?,
                     breakeven_pct = ?,
                     pnl_estimate = ?,
+                    iv_at_exit = ?,
+                    pnl_method = ?,
                     resolved_date = ?,
                     notes = ?
                 WHERE id = ?
             """, (
-                status, stock_price_at_earnings, actual_move_pct,
-                breakeven_pct, pnl_estimate, str(date.today()), notes,
+                status, stock_price_at_exit, actual_move_pct,
+                breakeven_pct, pnl_estimate, iv_at_exit,
+                pnl_method, str(date.today()), notes,
                 trade_id,
             ))
         return status

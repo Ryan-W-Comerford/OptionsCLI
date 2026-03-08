@@ -28,6 +28,28 @@ class StraddleCandidate(BaseModel):
     total_cost: float  # combined ask of call + put — rough entry cost estimate
 
 
+class StrangleCandidate(BaseModel):
+    ticker: str
+    earnings_date: date
+    days_to_earnings: int
+    call: OptionContract
+    put: OptionContract
+    iv_rank: float
+    vega_theta_ratio: float
+    total_cost: float
+    call_delta: float  # OTM target delta
+    put_delta: float
+
+
+class IVRankAlert(BaseModel):
+    ticker: str
+    iv_rank: float
+    current_iv: float
+    spot: float
+    iv_52w_low: float
+    iv_52w_high: float
+
+
 class PaperTrade(BaseModel):
     ticker: str
     entry_date: date

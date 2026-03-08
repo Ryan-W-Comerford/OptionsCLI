@@ -20,7 +20,7 @@ class Config:
         # High Beta S&P 500 stocks that are liquid with reasonable option pricing
         self.STOCKS: list[str] = [
             "AMD", "TSM", "INTC", "CRM", "ADBE", "ORCL", "NOW",
-            "META", "NFLX", "AMZN", "EBAY", "SQ", "PYPL", "COIN",
+            "META", "NFLX", "AMZN", "EBAY", "PYPL", "COIN",
             "MU", "QCOM", "AVGO", "BA", "CAT", "DE", "UNH",
             "ABBV", "MRK", "XOM", "CVX", "SLB",
         ]
