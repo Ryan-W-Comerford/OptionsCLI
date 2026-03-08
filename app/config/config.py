@@ -43,7 +43,7 @@ class Config:
         self.TARGET_PNL: float = 0.30
 
         # Trade history DB — SQLite, auto-created on first run. Set TRADE_DB_PATH in secrets.yaml
-        self.TRADE_DB_PATH: str = key_file.get("TRADE_DB_PATH", "data/trades.db")
+        self.TRADE_DB_PATH: str = key_file.get("TRADE_DB_PATH", "app/data/history/trades.db")
 
 
 config = Config()

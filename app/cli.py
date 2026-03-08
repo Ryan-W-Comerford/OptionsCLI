@@ -105,27 +105,15 @@ def start_history(_commands: list[str]) -> None:
 def start_backtest(commands: list[str]) -> None:
     if len(commands) != 2:
         raise ValueError("Usage: backtest <strategy>")
-    from app.backtest import Backtester
-    from app.config.config import config
-
-    _ = app.get_strategy(commands[1])
-    print(f"\n{C.DIM}  Loading historical earnings and running backtest...{C.RESET}")
-
-    from datetime import datetime
-    all_rows = app.earnings._read_cache() if app.earnings._cache_is_fresh() \
-        else app.earnings._fetch_and_cache()
-
-    historical = []
-    for row in all_rows:
-        try:
-            edate = datetime.fromisoformat(row["reportDate"]).date()
-            historical.append({"ticker": row["symbol"], "date": edate})
-        except (KeyError, ValueError):
-            continue
-
-    backtester = Backtester(app.market)
-    trades = backtester.run(config.STOCKS, historical)
-    Backtester.print_summary(trades)
+    _ = app.get_strategy(commands[1])  # validate strategy name
+    print(f"\n{C.DIM}  Running backtest from trade history DB...{C.RESET}")
+    trades = app.store.get_all()
+    resolved = [t for t in trades if t["status"] in ("resolved_win", "resolved_loss")]
+    if not resolved:
+        print(f"\n  {C.YELLOW}No resolved trades yet — run 'resolve' after earnings pass to populate.{C.RESET}\n")
+        return
+    from app.util.display import print_backtest
+    print_backtest(resolved)
 
 
 def start_watchlist(_commands: list[str]) -> None:

@@ -117,3 +117,40 @@ def print_history(trades: list, stats: dict) -> None:
           f"avg_pnl={stats['avg_pnl']:.1f}%" if stats['avg_pnl'] else
           f"  {C2.BOLD}Summary{C2.RESET}  pending={stats['pending']}  wins={C2.GREEN}{wins}{C2.RESET}  losses={C2.RED}{losses}{C2.RESET}  win_rate={C2.BOLD}{win_rate:.0f}%{C2.RESET}")
     print()
+
+
+def print_backtest(trades: list) -> None:
+    C2 = Colors
+    wins   = [t for t in trades if t["status"] == "resolved_win"]
+    losses = [t for t in trades if t["status"] == "resolved_loss"]
+    win_rate = len(wins) / len(trades) * 100 if trades else 0
+
+    pnls = [t["pnl_estimate"] for t in trades if t["pnl_estimate"] is not None]
+    avg_pnl = sum(pnls) / len(pnls) if pnls else 0
+    best  = max(trades, key=lambda t: t["pnl_estimate"] or 0)
+    worst = min(trades, key=lambda t: t["pnl_estimate"] or 0)
+
+    print(f"\n{C2.BOLD}{C2.CYAN}  BACKTEST RESULTS{C2.RESET}  {C2.DIM}({len(trades)} resolved trades){C2.RESET}")
+    print(f"  {C2.CYAN}{'═' * 58}{C2.RESET}")
+    print(f"  Win Rate   {C2.BOLD}{win_rate:.1f}%{C2.RESET}   {C2.GREEN}{len(wins)}W{C2.RESET} / {C2.RED}{len(losses)}L{C2.RESET}")
+    pnl_color = C2.GREEN if avg_pnl > 0 else C2.RED
+    print(f"  Avg P&L    {pnl_color}{C2.BOLD}{avg_pnl:+.1f}%{C2.RESET}  {C2.DIM}(move % minus breakeven %){C2.RESET}")
+    print(f"  Best       {C2.GREEN}{best['ticker']}  {(best['pnl_estimate'] or 0):+.1f}%{C2.RESET}")
+    print(f"  Worst      {C2.RED}{worst['ticker']}  {(worst['pnl_estimate'] or 0):+.1f}%{C2.RESET}")
+
+    print(f"\n  {C2.DIM}{'TICKER':<7} {'EARNINGS':>10} {'MOVE':>7} {'BE':>7} {'P&L':>8}  STATUS{C2.RESET}")
+    print(f"  {C2.DIM}{'─' * 58}{C2.RESET}")
+
+    for t in sorted(trades, key=lambda t: t["pnl_estimate"] or 0, reverse=True):
+        move = f"{t['actual_move_pct']:.1f}%" if t["actual_move_pct"] is not None else "—"
+        be   = f"{t['breakeven_pct']:.1f}%"   if t["breakeven_pct"]   is not None else "—"
+        pnl  = f"{t['pnl_estimate']:+.1f}%"   if t["pnl_estimate"]    is not None else "—"
+        color = C2.GREEN if t["status"] == "resolved_win" else C2.RED
+        print(
+            f"  {C2.BOLD}{t['ticker']:<7}{C2.RESET}"
+            f" {t['earnings_date']:>10}"
+            f" {move:>7} {be:>7}"
+            f" {color}{pnl:>8}{C2.RESET}"
+            f"  {C2.DIM}{t['status']}{C2.RESET}"
+        )
+    print()

@@ -27,7 +27,7 @@ pip install -r requirements.txt
 ```yaml
 POLYGON_API_KEY: your_massive_api_key_here
 ALPHA_API_KEY: your_alphavantage_key_here
-TRADE_DB_PATH: /path/to/your/trades.db   # optional — defaults to data/trades.db
+TRADE_DB_PATH: /path/to/your/trades.db   # optional — defaults to app/data/history/trades.db
 ```
 
 **3. Set the environment variable**
@@ -54,7 +54,7 @@ python3 -m app.cli
 | `findOne longStraddleIV AAPL` | Scan a single ticker |
 | `resolve` | Resolve pending trades post-earnings (win/loss) |
 | `history` | Show all saved trades and win/loss stats |
-| `backtest longStraddleIV` | Replay strategy over past year of earnings |
+| `backtest longStraddleIV` | Summarise win/loss stats from resolved trade history |
 | `watchlist` | Show configured watchlist |
 | `help` | Show all commands |
 | `exit` | Quit |
@@ -98,7 +98,6 @@ OptionsCLI maintains a local SQLite database of every candidate found, with a si
 ```
 app/
 ├── cli.py                  Entry point and command router
-├── backtest.py             Historical replay engine
 ├── config/
 │   └── config.py           Strategy parameters and watchlist
 ├── core/
@@ -123,6 +122,6 @@ app/
 
 - Earnings data is cached locally for 12 hours — re-fetched automatically when stale
 - Historical IV is computed from annualized realized volatility (20-day rolling log returns) to match the same scale as options implied volatility
-- Backtest P&L is IV-expansion based — a directional proxy, not a precise dollar figure
+- Backtest reads from the trade history DB — results improve as more trades are resolved over time
 - Up/down arrow key history is supported at the `options>` prompt (macOS/Linux)
 - This tool is for research and screening purposes only, not financial advice
