@@ -2,11 +2,11 @@
 Pre-Earnings Long Strangle Strategy (`longStrangleIV`)
 
 Same thesis as the long straddle but buys slightly OTM call and put
-(target delta ~0.25–0.35) instead of ATM. Cheaper entry cost, requires a
+(target delta ~0.25-0.35) instead of ATM. Cheaper entry cost, requires a
 larger move to profit, but better risk/reward on high-beta names where
 earnings moves are often violent (TSLA, COIN, NVDA etc).
 
-Entry:  Buy OTM call + OTM put 15–50 DTE before earnings
+Entry:  Buy OTM call + OTM put 15-50 DTE before earnings
 Exit:   Sell before earnings day (avoid IV crush)
 Win if: Underlying moves enough to cover combined premium
 """

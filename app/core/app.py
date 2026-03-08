@@ -16,7 +16,7 @@ strategy_map = {
 
 class OptionsApp:
     def __init__(self):
-        self.market   = MassiveProvider(config.POLYGON_API_KEY)
+        self.market   = MassiveProvider(config.MASSIVE_API_KEY)
         self.earnings = AlphaProvider(config.ALPHA_API_KEY)
         self.store    = TradeStore(config.TRADE_DB_PATH)
 

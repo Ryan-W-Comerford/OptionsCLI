@@ -1,15 +1,17 @@
 # OptionsCLI
 
-A CLI tool for scanning options contracts that match pre-configured trading strategies, powered by [Massive.com](https://massive.com) market data and Alpha Vantage earnings data. Candidates are automatically saved to a local SQLite database and can be resolved post-earnings to build a live win/loss track record.
+A CLI tool for scanning options contracts that match pre-configured trading strategies, powered by [Massive.com](https://massive.com) market data and Alpha Vantage earnings data. Candidates are automatically saved to a local SQLite database, tracked with live price updates, AI-analyzed with Claude, and resolved post-earnings to build a live win/loss track record.
+
+---
 
 ## Supported Strategies
 
 ### Pre-Earnings Long Straddle (`longStraddleIV`)
 
-Buy both a call and put **ATM** 15–50 days before earnings to capture IV expansion — sell before earnings day to avoid IV crush.
+Buy both a call and put **ATM** 15–50 days before earnings to capture IV expansion — sell 1 day before earnings to avoid IV crush.
 
 - Best when IV rank is **50–80** (elevated but not overpriced)
-- Wins if the stock moves enough in either direction to cover the combined premium
+- Wins if IV expands from entry to exit, regardless of stock direction
 - Ideal for: ORCL, ADBE, CRM, NOW — steady earnings movers with reliable IV expansion
 
 **Filters:** DTE 15–50 · IV Rank 30–80 · Delta 0.35–0.65 · Volume ≥ 50 · OI ≥ 250 · Spread ≤ 15%
@@ -22,9 +24,9 @@ Buy a slightly **OTM** call and put 15–50 days before earnings. Cheaper entry 
 
 - Best for high-beta names where earnings moves are often violent (TSLA, COIN, NVDA)
 - Lower cost = better risk/reward if the stock explodes in either direction
-- Target delta: **0.20–0.40** on both legs (outside ATM zone)
+- Target delta: **0.20–0.40** on both legs (1–12% OTM)
 
-**Filters:** Same as straddle but targets OTM strikes (1–12% away from spot)
+**Filters:** Same as straddle but targets OTM strikes outside the ATM zone
 
 ---
 
@@ -39,41 +41,70 @@ A fast, lightweight scan of the full watchlist showing **current IV rank** for e
 | 30–50 | Moderate — options fairly priced | Monitor, wait for elevation |
 | 0–30 | IV near yearly lows — cheap options | Calendar spreads, not straddles |
 
-Use this screen daily to spot opportunities across the watchlist. The best straddle setups appear on **both** the IV screen (rank 50–80) and the straddle scanner (upcoming earnings).
+Use this screen daily to spot opportunities. The best straddle setups appear on **both** the IV screen (rank 50–80) and the straddle scanner (upcoming earnings).
 
 ---
 
-## Trade History & Resolution
+## Trade Lifecycle
 
-OptionsCLI tracks every candidate found and resolves win/loss post-earnings automatically.
+OptionsCLI tracks every candidate from discovery through resolution.
 
 ### Workflow
 ```
-1. findAll / findOne   →  candidates auto-saved as "pending"
-2. (wait for earnings to pass)
-3. resolve             →  fetches earnings-day closing price, marks win/loss
-4. history             →  view full track record with move %, breakeven, P&L
-5. backtest            →  win rate and avg P&L summary across resolved trades
+1. findAll / findOne   ->  scan for candidates, auto-saved to DB as "pending"
+2. pending             ->  view all open trades with tickers, strategies, option symbols
+3. analyze             ->  AI analysis of pending trades (Claude + web search)
+4. sync                ->  update current stock prices + resolve post-earnings trades
+5. history             ->  view full track record with IV move, P&L, win/loss
+6. backtest            ->  win rate and avg P&L summary across resolved trades
 ```
 
 ### Status Lifecycle
 | Status | Meaning |
 |---|---|
-| `pending` | Candidate found, earnings not yet passed |
-| `resolved_win` | Post-earnings move exceeded straddle cost (breakeven) |
-| `resolved_loss` | Move did not cover the cost |
-| `unresolvable` | No cost data (bid/ask=0 on current plan) — move stored, win/loss unknown |
+| `pending` | Candidate found, earnings not yet passed — price updated on every `sync` |
+| `resolved_win` | IV expanded from entry to exit (1 day before earnings) |
+| `resolved_loss` | IV contracted or flat from entry to exit |
+| `unresolvable` | No IV or cost data available |
 | `expired` | Options expired with no resolution |
 
 ### Win/Loss Logic
-A trade is a **win** if the stock's absolute price move after earnings exceeds the breakeven:
-```
-breakeven_pct = (total_cost / stock_price_at_scan) * 100
-pnl = actual_move_pct - breakeven_pct
-```
-`resolve` always uses the **earnings day closing price** from historical data — not the live price — so it's accurate regardless of when you run it.
 
-> **Note:** On the $29 Options plan, bid/ask quotes are not returned — `Est. Cost` shows as `n/a` and trades resolve as `unresolvable`. You can manually set the cost via SQLite to get a real win/loss. Upgrade to Stocks Advanced ($199) for live quote data.
+The strategy exits **1 day before earnings** to capture IV expansion and avoid IV crush. P&L is measured as the % change in realized volatility from scan date to exit date:
+
+```
+pnl = (iv_at_exit - iv_at_entry) / iv_at_entry * 100
+```
+
+If IV rose 20% from entry to exit (e.g. 0.35 -> 0.42), that's a +20% win. Falls back to stock move vs breakeven if IV data is unavailable.
+
+> **Note:** On the $29 Massive plan, bid/ask quotes are not returned — `Est. Cost` shows as `n/a`. Upgrade to Stocks Advanced ($199) for live quote data and exact P&L calculation.
+
+---
+
+## AI Analysis (`analyze`)
+
+The `analyze` command passes all pending trades to Claude with web search enabled. For each trade, Claude searches for recent news, analyst sentiment, historical earnings reactions, and macro conditions — then returns a structured verdict.
+
+**Example output:**
+```
+  ORCL  earnings 2026-03-10 (3d)
+  Signal: Strong  Confidence: 78%  Action: Enter  IV expansion likely
+  Oracle reports Monday. Strong guidance expectations after AWS/Azure beat.
+  Options market pricing a 6.2% move vs 5-yr avg of 7.8%.
+
+  Catalysts:
+    + Cloud revenue acceleration expected (OCI gaining share)
+    + Analyst upgrades from MS and GS in past 2 weeks
+
+  Risks:
+    - Dollar strength compresses international revenue
+    - IV rank already elevated, limited further expansion room
+```
+
+**Fields returned per trade:** signal (Strong / Moderate / Weak / Avoid), confidence %, summary, catalysts, risks, IV expansion likelihood, suggested action (Enter / Monitor / Skip).
+
+Requires `ANTHROPIC_API_KEY` in `secrets.yaml`. Each ticker costs roughly $0.01–0.02 in API usage.
 
 ---
 
@@ -86,9 +117,10 @@ pip install -r requirements.txt
 
 **2. Create a secrets YAML file**
 ```yaml
-POLYGON_API_KEY: your_massive_api_key_here
-ALPHA_API_KEY:   your_alphavantage_key_here
-TRADE_DB_PATH:   /path/to/your/trades.db   # optional — defaults to app/data/history/trades.db
+MASSIVE_API_KEY:    your_massive_api_key_here
+ALPHA_API_KEY:      your_alphavantage_key_here
+ANTHROPIC_API_KEY:  sk-ant-...                    # required for analyze command
+TRADE_DB_PATH:      /path/to/your/trades.db       # optional, defaults to app/data/history/trades.db
 ```
 
 **3. Set the environment variable**
@@ -107,6 +139,15 @@ source ~/.zshrc
 python3 -m app.cli
 ```
 
+**5. Keep `trades.db` out of git**
+
+Add to `.gitignore`, then untrack if already committed:
+```bash
+echo "app/data/history/trades.db" >> .gitignore
+git rm --cached app/data/history/trades.db
+git commit -m "untrack trades.db"
+```
+
 ---
 
 ## Commands
@@ -117,7 +158,9 @@ python3 -m app.cli
 | `findAll longStrangleIV` | Scan full watchlist — OTM strangle candidates |
 | `findAll ivRankScreen` | IV rank sweep across full watchlist |
 | `findOne longStraddleIV AAPL` | Scan a single ticker with any strategy |
-| `resolve` | Resolve pending trades post-earnings (win/loss) |
+| `pending` | Show all open trades — ticker, strategy, earnings date, option symbols |
+| `analyze` | AI analysis of all pending trades (Claude + web search) |
+| `sync` | Update current prices + resolve post-earnings trades |
 | `history` | Show all saved trades and win/loss stats |
 | `backtest longStraddleIV` | Win rate and P&L summary from resolved trades |
 | `watchlist` | Show configured watchlist tickers |
@@ -126,15 +169,16 @@ python3 -m app.cli
 
 ---
 
-## Data Sources & Plan Requirements
+## Data Sources & API Keys
 
-| Data | Endpoint | Minimum Plan |
-|---|---|---|
-| Stock price (snapshot) | Massive.com Stocks | $29/mo |
-| Historical price (aggregates) | Massive.com Stocks | $29/mo |
-| Options chain + greeks | Massive.com Options | $29/mo |
-| Live bid/ask quotes | Massive.com Stocks Advanced | $199/mo |
-| Earnings calendar | Alpha Vantage Free | Free |
+| Data | Source | Key | Min Plan |
+|---|---|---|---|
+| Stock prices + options chain | Massive.com | `MASSIVE_API_KEY` | $29/mo |
+| Live bid/ask quotes | Massive.com | `MASSIVE_API_KEY` | $199/mo |
+| Earnings calendar | Alpha Vantage | `ALPHA_API_KEY` | Free |
+| AI trade analysis | Anthropic Claude | `ANTHROPIC_API_KEY` | Pay-per-use (~$0.01/ticker) |
+
+Get your Anthropic API key at **console.anthropic.com** — new accounts receive free starter credits.
 
 ---
 
@@ -147,6 +191,8 @@ app/
 │   └── config.py           Strategy parameters and watchlist
 ├── core/
 │   └── app.py              App orchestration and strategy map
+├── analysis/
+│   └── analyzer.py         AI trade analysis via Claude API + web search
 ├── data/
 │   ├── provider.py         Abstract base provider
 │   ├── massive.py          Massive.com market data
@@ -172,6 +218,7 @@ app/
 - Earnings data is cached locally for 12 hours — re-fetched automatically when stale
 - Historical IV uses annualized realized volatility (20-day rolling log returns) — same scale as options IV
 - `ivRankScreen` does not fetch options chains — fast and cheap on API calls
-- The `strategy` column in the DB is auto-migrated on startup — existing DBs are updated automatically
+- All DB schema changes are auto-migrated on startup — existing databases update silently
+- `trades.db` should be in `.gitignore` — contains personal trade history
 - Up/down arrow key history is supported at the `options>` prompt (macOS/Linux)
 - This tool is for research and screening purposes only, not financial advice

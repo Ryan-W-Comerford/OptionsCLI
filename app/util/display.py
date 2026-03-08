@@ -219,3 +219,65 @@ def print_iv_screen(alerts: list) -> None:
         )
 
     print()
+
+
+def print_analysis(results: list[dict]) -> None:
+    """Display AI analysis results for pending trades."""
+    C2 = Colors
+
+    SIGNAL_COLOR = {
+        "Strong":   C2.GREEN,
+        "Moderate": C2.YELLOW,
+        "Weak":     C2.YELLOW,
+        "Avoid":    C2.RED,
+    }
+    ACTION_COLOR = {
+        "Enter":   C2.GREEN,
+        "Monitor": C2.YELLOW,
+        "Skip":    C2.RED,
+    }
+
+    print(f"\n{C2.BOLD}  AI TRADE ANALYSIS{C2.RESET}  {C2.DIM}(powered by Claude + web search){C2.RESET}")
+    print(f"  {'═' * 62}\n")
+
+    for r in results:
+        ticker = r.get("ticker", "???")
+        edate  = r.get("earnings_date", "?")
+        dte    = r.get("days_to_earnings")
+        dte_str = f"{dte}d" if dte else "?"
+
+        if r.get("status") != "ok":
+            print(f"  {C2.BOLD}{ticker:<6}{C2.RESET}  {C2.RED}Analysis failed: {r.get('error', 'unknown error')}{C2.RESET}\n")
+            continue
+
+        signal   = r.get("signal", "?")
+        action   = r.get("suggested_action", "?")
+        conf     = r.get("confidence", 0)
+        summary  = r.get("summary", "")
+        cats     = r.get("catalysts", [])
+        risks    = r.get("risks", [])
+        iv_exp   = r.get("iv_expansion_likely", False)
+
+        sig_color = SIGNAL_COLOR.get(signal, C2.WHITE)
+        act_color = ACTION_COLOR.get(action, C2.WHITE)
+        iv_str    = f"{C2.GREEN}IV expansion likely ✓{C2.RESET}" if iv_exp else f"{C2.RED}IV expansion uncertain ✗{C2.RESET}"
+
+        print(f"  {C2.BOLD}{C2.WHITE}{ticker}{C2.RESET}  "
+              f"{C2.DIM}earnings {edate} ({dte_str}){C2.RESET}")
+        print(f"  Signal: {sig_color}{C2.BOLD}{signal}{C2.RESET}  "
+              f"Confidence: {C2.BOLD}{conf}%{C2.RESET}  "
+              f"Action: {act_color}{C2.BOLD}{action}{C2.RESET}  "
+              f"{iv_str}")
+        print(f"  {C2.DIM}{summary}{C2.RESET}")
+
+        if cats:
+            print(f"  {C2.GREEN}Catalysts:{C2.RESET}")
+            for cat in cats:
+                print(f"    {C2.GREEN}+{C2.RESET} {cat}")
+
+        if risks:
+            print(f"  {C2.RED}Risks:{C2.RESET}")
+            for risk in risks:
+                print(f"    {C2.RED}−{C2.RESET} {risk}")
+
+        print(f"  {C2.DIM}{'─' * 62}{C2.RESET}\n")

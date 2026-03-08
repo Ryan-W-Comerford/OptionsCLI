@@ -14,15 +14,39 @@ class Config:
         with open(secrets_path) as f:
             key_file = yaml.safe_load(f)
 
-        self.POLYGON_API_KEY: str = key_file["POLYGON_API_KEY"]
+        self.MASSIVE_API_KEY: str = key_file["MASSIVE_API_KEY"]
         self.ALPHA_API_KEY: str = key_file["ALPHA_API_KEY"]
 
-        # High Beta S&P 500 stocks that are liquid with reasonable option pricing
+        # High-beta S&P 500 stocks with liquid options and reliable IV expansion into earnings.
+        # Criteria: beta > 1.2, avg options volume > 10k/day, quarterly earnings cadence.
+        # Sorted by tier — Tier 1 are the highest-conviction names for this strategy.
         self.STOCKS: list[str] = [
-            "AMD", "TSM", "INTC", "CRM", "ADBE", "ORCL", "NOW",
-            "META", "NFLX", "AMZN", "EBAY", "PYPL", "COIN",
-            "MU", "QCOM", "AVGO", "BA", "CAT", "DE", "UNH",
-            "ABBV", "MRK", "XOM", "CVX", "SLB",
+            # --- Tier 1: Mega-cap tech (highest options volume, most reliable IV expansion) ---
+            "NVDA", "TSLA", "AAPL", "META", "AMZN", "GOOGL", "MSFT",
+
+            # --- Tier 1: Semiconductors (earnings binary, huge IV swings) ---
+            "AMD", "MU", "AVGO", "QCOM", "TSM", "LRCX", "MRVL",
+
+            # --- Tier 1: Software / SaaS (consistent IV run-up into earnings) ---
+            "CRM", "ADBE", "NOW", "ORCL", "SNOW",
+
+            # --- Tier 1: Cybersecurity (high-beta, growth-multiple names) ---
+            "CRWD", "PANW",
+
+            # --- Tier 1: Fintech / Crypto (volatile, earnings-driven) ---
+            "COIN", "SQ", "PYPL",
+
+            # --- Tier 1: High-beta growth (strong earnings reactions) ---
+            "NFLX", "UBER", "PLTR",
+
+            # --- Tier 2: Industrials / Financials (lower IV but solid liquidity) ---
+            "BA", "GS", "UNH", "CAT",
+
+            # --- Tier 2: Lower-beta semis (still liquid, lower IV expansion) ---
+            "INTC",
+
+            # --- Tier 3: Lower-beta (marginal for straddles — use ivRankScreen to time) ---
+            "ABBV", "MRK", "XOM", "CVX", "EBAY",
         ]
 
         self.EARNINGS_LOOKAHEAD_DAYS: int = 30
@@ -39,7 +63,7 @@ class Config:
         self.MIN_OPEN_INTEREST: int = 250
         self.MAX_BID_ASK_SPREAD_PCT: float = 0.15
 
-        self.EXIT_DAYS_BEFORE_EARNINGS: int = 2
+        self.EXIT_DAYS_BEFORE_EARNINGS: int = 1
         self.TARGET_PNL: float = 0.30
 
         # Trade history DB — SQLite, auto-created on first run. Set TRADE_DB_PATH in secrets.yaml
