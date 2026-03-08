@@ -1,14 +1,13 @@
-from app.config.config import config
+from abc import ABC, abstractmethod
 
-class Provider():
-    def __init__(self):
-        self.config = config
 
-    def get_stocks(self):
-        return config.STOCKS
+class Provider(ABC):
+    """Abstract base class for all data providers."""
 
-    def get_upcoming_earnings(self):
+    @abstractmethod
+    def get_stock_price(self, ticker: str) -> float:
         pass
 
-    def get_stock_price(self):
+    @abstractmethod
+    def get_upcoming_earnings(self, within_days: int) -> list[dict]:
         pass

@@ -1,8 +1,15 @@
-from app.data.massive import MassiveProvider
+from abc import ABC, abstractmethod
 
-class Strategy:
-    def generate_candidates(self, provider: MassiveProvider):
-        raise NotImplementedError
+from app.data.provider import Provider
+from app.models.models import StraddleCandidate
 
-    def simulate_trade(self, provider: MassiveProvider, candidate):
+
+class Strategy(ABC):
+    @abstractmethod
+    def generate_candidates(
+        self,
+        market: Provider,
+        earnings: Provider,
+        ticker_filter: str = None
+    ) -> list[StraddleCandidate]:
         raise NotImplementedError

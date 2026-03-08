@@ -1,59 +1,50 @@
-import yaml
 import os
 
-class Config():
-    secrets_path = os.environ.get("SECRETS_FILE_PATH")
-    with open(secrets_path) as file:
-        key_file = yaml.safe_load(file)
+import yaml
 
-    POLYGON_API_KEY = key_file["POLYGON_API_KEY"]
-    ALPHA_API_KEY = key_file["ALPHA_API_KEY"]
 
-    # High Beta S&P 500 stocks that are liquid and not high option pricing
-    STOCKS = [
-        "AMD",
-        "TSM",
-        "INTC",
-        "CRM",
-        "ADBE",
-        "ORCL",
-        "NOW",
-        "META",
-        "NFLX",
-        "AMZN",
-        "EBAY",
-        "SQ",
-        "PYPL",
-        "COIN",
-        "MU",
-        "QCOM",
-        "AVGO",
-        "BA",
-        "CAT",
-        "DE",
-        "UNH",
-        "ABBV",
-        "MRK",
-        "XOM",
-        "CVX",
-        "SLB"
-    ]
+class Config:
+    def __init__(self):
+        secrets_path = os.environ.get("SECRETS_FILE_PATH")
+        if not secrets_path:
+            raise EnvironmentError("SECRETS_FILE_PATH environment variable is not set")
+        if not os.path.exists(secrets_path):
+            raise FileNotFoundError(f"Secrets file not found: {secrets_path}")
 
-    EARNINGS_LOOKAHEAD_DAYS = 30
-    TARGET_DTE_RANGE = (20, 40)
+        with open(secrets_path) as f:
+            key_file = yaml.safe_load(f)
 
-    MIN_IV_RANK = 40
-    MAX_ENTRY_IV_RANK = 70
-    EXIT_IV_RANK = 80
+        self.POLYGON_API_KEY: str = key_file["POLYGON_API_KEY"]
+        self.ALPHA_API_KEY: str = key_file["ALPHA_API_KEY"]
 
-    MIN_VEGA_THETA_RATIO = 4
-    ATM_DELTA_RANGE = (0.40, 0.60)
+        # High Beta S&P 500 stocks that are liquid with reasonable option pricing
+        self.STOCKS: list[str] = [
+            "AMD", "TSM", "INTC", "CRM", "ADBE", "ORCL", "NOW",
+            "META", "NFLX", "AMZN", "EBAY", "SQ", "PYPL", "COIN",
+            "MU", "QCOM", "AVGO", "BA", "CAT", "DE", "UNH",
+            "ABBV", "MRK", "XOM", "CVX", "SLB",
+        ]
 
-    MIN_OPTION_VOLUME = 100
-    MIN_OPEN_INTEREST = 500
-    MAX_BID_ASK_SPREAD_PCT = 0.05
+        self.EARNINGS_LOOKAHEAD_DAYS: int = 30
+        self.TARGET_DTE_RANGE: tuple[int, int] = (15, 50)
 
-    EXIT_DAYS_BEFORE_EARNINGS = 2
-    TARGET_PNL = 0.30
+        self.MIN_IV_RANK: float = 30.0
+        self.MAX_ENTRY_IV_RANK: float = 80.0
+        self.EXIT_IV_RANK: float = 85.0
+
+        self.MIN_VEGA_THETA_RATIO: float = 0.0  # disabled — unreliable with delayed greeks
+        self.ATM_DELTA_RANGE: tuple[float, float] = (0.35, 0.65)
+
+        self.MIN_OPTION_VOLUME: int = 50
+        self.MIN_OPEN_INTEREST: int = 250
+        self.MAX_BID_ASK_SPREAD_PCT: float = 0.15
+
+        self.EXIT_DAYS_BEFORE_EARNINGS: int = 2
+        self.TARGET_PNL: float = 0.30
+
+        # Trade history DB — SQLite, auto-created on first run. Set TRADE_DB_PATH in secrets.yaml
+        self.TRADE_DB_PATH: str = key_file.get("TRADE_DB_PATH", "data/trades.db")
+
 
 config = Config()
+# NOTE: appending TRADE_DB_PATH — paste into Config.__init__ before config = Config()

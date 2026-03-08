@@ -1,23 +1,31 @@
-from pydantic import BaseModel
 from datetime import date
+from pydantic import BaseModel
+
 
 class OptionContract(BaseModel):
     symbol: str
     strike: float
     expiration: date
-    option_type: str
+    option_type: str  # "call" or "put"
     delta: float
     theta: float
     vega: float
     iv: float
+    volume: int = 0
+    open_interest: int = 0
+    bid: float = 0.0
+    ask: float = 0.0
 
 
 class StraddleCandidate(BaseModel):
     ticker: str
     earnings_date: date
+    days_to_earnings: int
     call: OptionContract
     put: OptionContract
     iv_rank: float
+    vega_theta_ratio: float
+    total_cost: float  # combined ask of call + put — rough entry cost estimate
 
 
 class PaperTrade(BaseModel):
