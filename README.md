@@ -6,7 +6,7 @@ A CLI tool for scanning options contracts that match pre-configured trading stra
 
 ## Supported Strategies
 
-### Pre-Earnings Long Straddle (`longStraddleIV`)
+### Pre-Earnings Long Straddle (`longStraddleEarnings`)
 
 Buy both a call and put **ATM** 15–50 days before earnings to capture IV expansion — sell 1 day before earnings to avoid IV crush.
 
@@ -18,7 +18,7 @@ Buy both a call and put **ATM** 15–50 days before earnings to capture IV expan
 
 ---
 
-### Pre-Earnings Long Strangle (`longStrangleIV`)
+### Pre-Earnings Long Strangle (`longStrangleEarnings`)
 
 Buy a slightly **OTM** call and put 15–50 days before earnings. Cheaper entry than the straddle, but requires a larger move to be profitable.
 
@@ -27,6 +27,31 @@ Buy a slightly **OTM** call and put 15–50 days before earnings. Cheaper entry 
 - Target delta: **0.20–0.40** on both legs (1–12% OTM)
 
 **Filters:** Same as straddle but targets OTM strikes outside the ATM zone
+
+---
+
+### Event-Driven Long Straddle (`longStraddleEvent`)
+
+Same thesis as the earnings straddle but the catalyst is discovered by Claude via web search rather than a fixed earnings calendar. Claude searches for upcoming dated events — Congressional votes, FDA decisions, Fed meetings, product launches, geopolitical flashpoints — maps them to affected tickers, then scans the options chain for exact contracts.
+
+- Enter before the event, sell at peak IV just before the event resolves
+- Best for binary events with a specific known date and uncertain outcome
+- Claude re-discovers events on every scan so the list is always current
+
+**Examples of events Claude finds:**
+- Senate votes on energy/defense/pharma legislation → XOM, LMT, MRNA
+- FDA PDUFA approval dates → biotech names
+- Fed rate decisions → bank/REIT sector ETFs
+- OPEC meeting dates → XOM, CVX, SLB
+- Major product launches or investor days → AAPL, NVDA
+
+**Requires:** `ANTHROPIC_API_KEY` in secrets.yaml (uses Claude Sonnet + web search, ~$0.05 per scan)
+
+---
+
+### Event-Driven Long Strangle (`longStrangleEvent`)
+
+Same as `longStraddleEvent` but with OTM legs. Better for high-expected-move events where a large directional move is likely.
 
 ---
 
@@ -41,13 +66,9 @@ A fast, lightweight scan of the full watchlist showing **current IV rank** for e
 | 30–50 | Moderate — options fairly priced | Monitor, wait for elevation |
 | 0–30 | IV near yearly lows — cheap options | Calendar spreads, not straddles |
 
-Use this screen daily to spot opportunities. The best straddle setups appear on **both** the IV screen (rank 50–80) and the straddle scanner (upcoming earnings).
-
 ---
 
 ## Trade Lifecycle
-
-OptionsCLI tracks every candidate from discovery through resolution.
 
 ### Workflow
 ```
@@ -63,40 +84,32 @@ OptionsCLI tracks every candidate from discovery through resolution.
 ### Status Lifecycle
 | Status | Meaning |
 |---|---|
-| `pending` | Candidate found, earnings not yet passed — price updated on every `sync` |
-| `resolved_win` | IV expanded from entry to exit (1 day before earnings) |
+| `pending` | Candidate found, event not yet passed — price updated on every `sync` |
+| `resolved_win` | IV expanded from entry to exit |
 | `resolved_loss` | IV contracted or flat from entry to exit |
 | `unresolvable` | No IV or cost data available |
 | `expired` | Options expired with no resolution |
 
 ### Win/Loss Logic
 
-The strategy exits **1 day before earnings** to capture IV expansion and avoid IV crush. P&L is measured as the % change in realized volatility from scan date to exit date:
+The strategy exits **1 day before the event/earnings date**. P&L is measured as % change in realized volatility from scan date to exit date:
 
 ```
 pnl = (iv_at_exit - iv_at_entry) / iv_at_entry * 100
 ```
 
-If IV rose 20% from entry to exit (e.g. 0.35 -> 0.42), that's a +20% win. Falls back to stock move vs breakeven if IV data is unavailable.
-
-> **Note:** On the $29 Massive plan, bid/ask quotes are not returned — `Est. Cost` shows as `n/a`. Upgrade to Stocks Advanced ($199) for live quote data and exact P&L calculation.
+> **Note:** On the $29 Massive plan, bid/ask quotes are not returned — `Est. Cost` shows as `n/a`. Upgrade to Stocks Advanced ($199) for exact P&L calculation.
 
 ---
 
 ## AI Analysis
 
-Two modes depending on how much depth you need.
-
 ### `analyze` — Fast (Haiku, training knowledge)
-- Model: Claude Haiku
-- No web search — uses Claude's training knowledge of the company, sector, and typical earnings behavior
-- ~10s per ticker, fraction of a cent per call
+- Model: Claude Haiku · No web search · ~10s/ticker · fraction of a cent
 - Use daily as a routine check on pending trades
 
 ### `analyze deep` — Deep (Sonnet + live web search)
-- Model: Claude Sonnet
-- Searches the web for recent news, analyst upgrades/downgrades, earnings previews, macro conditions
-- ~60s per ticker, ~$0.02 per ticker
+- Model: Claude Sonnet · Live web search · ~60s/ticker · ~$0.02/ticker
 - Use the day before you're considering entering a trade
 
 **Example output:**
@@ -104,20 +117,14 @@ Two modes depending on how much depth you need.
   ORCL  earnings 2026-03-10 (3d)
   Signal: Strong  Confidence: 78%  Action: Enter  IV expansion likely
   Oracle reports Monday. Strong guidance expectations after AWS/Azure beat.
-  Options market pricing a 6.2% move vs 5-yr avg of 7.8%.
 
   Catalysts:
     + Cloud revenue acceleration expected (OCI gaining share)
     + Analyst upgrades from MS and GS in past 2 weeks
-
   Risks:
     - Dollar strength compresses international revenue
     - IV rank already elevated, limited further expansion room
 ```
-
-**Fields returned per trade:** signal (Strong / Moderate / Weak / Avoid), confidence %, summary, catalysts, risks, IV expansion likelihood, suggested action (Enter / Monitor / Skip).
-
-Requires `ANTHROPIC_API_KEY` in `secrets.yaml`. Get your key at **console.anthropic.com** — new accounts receive free starter credits. The $5 starter credit is a one-time prepaid balance, not a subscription — API calls stop if you run out unless you manually top up or enable auto-reload.
 
 ---
 
@@ -132,7 +139,7 @@ pip install -r requirements.txt
 ```yaml
 MASSIVE_API_KEY:    your_massive_api_key_here
 ALPHA_API_KEY:      your_alphavantage_key_here
-ANTHROPIC_API_KEY:  sk-ant-...                    # required for analyze / analyze deep
+ANTHROPIC_API_KEY:  sk-ant-...                    # required for analyze, analyze deep, and event strategies
 TRADE_DB_PATH:      /path/to/your/trades.db       # optional, defaults to app/data/history/trades.db
 ```
 
@@ -167,16 +174,18 @@ git commit -m "untrack sensitive files"
 
 | Command | Description |
 |---|---|
-| `findAll longStraddleIV` | Scan full watchlist — ATM straddle candidates |
-| `findAll longStrangleIV` | Scan full watchlist — OTM strangle candidates |
+| `findAll longStraddleEarnings` | Scan full watchlist — ATM straddle, earnings-driven |
+| `findAll longStrangleEarnings` | Scan full watchlist — OTM strangle, earnings-driven |
+| `findAll longStraddleEvent` | Claude discovers events + scans ATM straddle contracts |
+| `findAll longStrangleEvent` | Claude discovers events + scans OTM strangle contracts |
 | `findAll ivRankScreen` | IV rank sweep across full watchlist |
-| `findOne longStraddleIV AAPL` | Scan a single ticker with any strategy |
+| `findOne longStraddleEarnings AAPL` | Scan a single ticker with any strategy |
 | `pending` | Show all open trades — ticker, strategy, earnings date, option symbols |
 | `analyze` | Quick AI analysis — Haiku, training knowledge (~10s/ticker) |
 | `analyze deep` | Full AI research — Sonnet + live web search (~60s/ticker, ~$0.02/ticker) |
-| `sync` | Update current prices + resolve post-earnings trades |
+| `sync` | Update current prices + resolve post-event/earnings trades |
 | `history` | Show all saved trades and win/loss stats |
-| `backtest longStraddleIV` | Win rate and P&L summary from resolved trades |
+| `backtest longStraddleEarnings` | Win rate and P&L summary from resolved trades |
 | `watchlist` | Show configured watchlist tickers |
 | `help` | Show all commands |
 | `exit` | Quit |
@@ -192,6 +201,9 @@ git commit -m "untrack sensitive files"
 | Earnings calendar | Alpha Vantage | `ALPHA_API_KEY` | Free |
 | AI analysis (fast) | Claude Haiku | `ANTHROPIC_API_KEY` | ~$0.0003/ticker |
 | AI analysis (deep) | Claude Sonnet + web search | `ANTHROPIC_API_KEY` | ~$0.02/ticker |
+| Event discovery | Claude Sonnet + web search | `ANTHROPIC_API_KEY` | ~$0.05/scan |
+
+Get your Anthropic API key at **console.anthropic.com**. The $5 starter credit is a one-time prepaid balance — API calls stop if you run out unless you manually top up or enable auto-reload in the console.
 
 ---
 
@@ -205,7 +217,8 @@ app/
 ├── core/
 │   └── app.py              App orchestration and strategy map
 ├── analysis/
-│   └── analyzer.py         AI trade analysis (Haiku fast / Sonnet deep)
+│   ├── analyzer.py         AI trade analysis (Haiku fast / Sonnet deep)
+│   └── event_scanner.py    Claude-powered event discovery (Sonnet + web search)
 ├── data/
 │   ├── provider.py         Abstract base provider
 │   ├── massive.py          Massive.com market data
@@ -217,8 +230,10 @@ app/
 │   └── models.py           Pydantic data models
 ├── strategy/
 │   ├── strategy.py         Abstract base strategy
-│   ├── iv_straddle.py      Long straddle (ATM) implementation
-│   ├── iv_strangle.py      Long strangle (OTM) implementation
+│   ├── iv_straddle.py      Earnings straddle (ATM)
+│   ├── iv_strangle.py      Earnings strangle (OTM)
+│   ├── event_straddle.py   Event-driven straddle (ATM)
+│   ├── event_strangle.py   Event-driven strangle (OTM)
 │   └── iv_rank_screen.py   IV rank watchlist screen
 └── util/
     └── display.py          Terminal output and history formatting
@@ -234,5 +249,5 @@ app/
 - All DB schema changes are auto-migrated on startup — existing databases update silently
 - `trades.db` and `secrets.yaml` should both be in `.gitignore`
 - Up/down arrow key history is supported at the `options>` prompt (macOS/Linux)
-- Anthropic API rate limits are per account tier — new accounts are limited to 30k tokens/min, which increases automatically as you spend more
+- Anthropic API rate limits improve automatically as your account accumulates spend
 - This tool is for research and screening purposes only, not financial advice

@@ -10,13 +10,14 @@ from app.core.app import OptionsApp
 from app.config.config import config
 from app.util.display import Colors as C, print_candidates, print_strangle_candidates, print_iv_screen, print_history
 
-BANNER = C.CYAN + r"""
+BANNER = C.WHITE + r"""
  ██████╗ ██████╗ ████████╗██╗ ██████╗ ███╗   ██╗███████╗ ██████╗██╗     ██╗
 ██╔═══██╗██╔══██╗╚══██╔══╝██║██╔═══██╗████╗  ██║██╔════╝██╔════╝██║     ██║
 ██║   ██║██████╔╝   ██║   ██║██║   ██║██╔██╗ ██║███████╗██║     ██║     ██║
 ██║   ██║██╔═══╝    ██║   ██║██║   ██║██║╚██╗██║╚════██║██║     ██║     ██║
 ╚██████╔╝██║        ██║   ██║╚██████╔╝██║ ╚████║███████║╚██████╗███████╗██║
  ╚═════╝ ╚═╝        ╚═╝   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝ ╚═════╝╚══════╝╚═╝
+                                   v1.0.0
 """ + C.RESET
 
 app = OptionsApp()
@@ -39,7 +40,7 @@ def _save_candidates(candidates, strategy_name: str) -> None:
 
 def _display(strategy_name: str, candidates: list) -> None:
     """Route candidates to the correct display function by strategy."""
-    if strategy_name == "longStrangleIV":
+    if strategy_name in ("longStrangleEarnings", "longStrangleEvent"):
         print_strangle_candidates(candidates)
     elif strategy_name == "ivRankScreen":
         print_iv_screen(candidates)
@@ -50,29 +51,53 @@ def _display(strategy_name: str, candidates: list) -> None:
 def start_findall(commands: list[str]) -> None:
     if len(commands) != 2:
         raise ValueError("Usage: findAll <strategy>")
-    strategy = app.get_strategy(commands[1])
-    if commands[1] == "ivRankScreen":
+    strategy_name = commands[1]
+    strategy = app.get_strategy(strategy_name)
+
+    if strategy_name == "ivRankScreen":
         print(f"\n{C.DIM}  Checking IV rank across {len(config.STOCKS)} watchlist tickers...{C.RESET}")
         candidates = strategy.generate_candidates(app.market, app.earnings)
+
+    elif app.is_event_strategy(strategy_name):
+        from app.analysis.event_scanner import discover_events
+        print(f"\n{C.DIM}  Discovering upcoming market events via Claude + web search...{C.RESET}")
+        print(f"{C.DIM}  This may take 30-60 seconds.{C.RESET}\n")
+        events = discover_events(verbose=True)
+        if not events:
+            print(f"  {C.YELLOW}No upcoming events found. Try again later.{C.RESET}\n")
+            return
+        print(f"\n{C.DIM}  Found {len(events)} event(s). Scanning options chains...{C.RESET}\n")
+        candidates = strategy.generate_candidates(app.market, app.earnings, events=events)
+
     else:
         count = app.upcoming_earnings_count()
         print(f"\n{C.DIM}  Scanning {count} upcoming earnings events on watchlist...{C.RESET}")
         candidates = strategy.generate_candidates(app.market, app.earnings)
-    _display(commands[1], candidates)
-    if candidates and commands[1] != "ivRankScreen":
-        _save_candidates(candidates, commands[1])
+
+    _display(strategy_name, candidates)
+    if candidates and strategy_name != "ivRankScreen":
+        _save_candidates(candidates, strategy_name)
 
 
 def start_findone(commands: list[str]) -> None:
     if len(commands) != 3:
         raise ValueError("Usage: findOne <strategy> <ticker>")
-    strategy = app.get_strategy(commands[1])
+    strategy_name = commands[1]
+    strategy = app.get_strategy(strategy_name)
     ticker = commands[2].upper()
     print(f"\n{C.DIM}  Scanning {ticker}...{C.RESET}")
-    candidates = strategy.generate_candidates(app.market, app.earnings, ticker_filter=ticker)
-    _display(commands[1], candidates)
-    if candidates and commands[1] != "ivRankScreen":
-        _save_candidates(candidates, commands[1])
+
+    if app.is_event_strategy(strategy_name):
+        from app.analysis.event_scanner import discover_events
+        print(f"{C.DIM}  Discovering events via Claude + web search...{C.RESET}\n")
+        events = discover_events(verbose=True)
+        candidates = strategy.generate_candidates(app.market, app.earnings, ticker_filter=ticker, events=events)
+    else:
+        candidates = strategy.generate_candidates(app.market, app.earnings, ticker_filter=ticker)
+
+    _display(strategy_name, candidates)
+    if candidates and strategy_name != "ivRankScreen":
+        _save_candidates(candidates, strategy_name)
 
 
 def start_sync(_commands: list[str]) -> None:
@@ -282,9 +307,11 @@ HELP_TEXT = f"""
     {C.CYAN}exit{C.RESET}                            Quit
 
 {C.BOLD}  Available strategies:{C.RESET}
-    {C.YELLOW}longStraddleIV{C.RESET}  Pre-earnings ATM straddle (buy call + put at strike)
-    {C.YELLOW}longStrangleIV{C.RESET}  Pre-earnings OTM strangle (cheaper, needs bigger move)
-    {C.YELLOW}ivRankScreen{C.RESET}   IV rank alert across full watchlist (no earnings needed)
+    {C.YELLOW}longStraddleEarnings{C.RESET}  Pre-earnings ATM straddle
+    {C.YELLOW}longStrangleEarnings{C.RESET}  Pre-earnings OTM strangle
+    {C.YELLOW}longStraddleEvent{C.RESET}     Event-driven ATM straddle (Claude discovers catalysts)
+    {C.YELLOW}longStrangleEvent{C.RESET}     Event-driven OTM strangle (Claude discovers catalysts)
+    {C.YELLOW}ivRankScreen{C.RESET}          IV rank screen across full watchlist
 """
 
 if __name__ == "__main__":
@@ -293,7 +320,7 @@ if __name__ == "__main__":
 
     while True:
         try:
-            raw = input(f"{C.CYAN}options>{C.RESET} ").strip()
+            raw = input(f"{C.WHITE}options>{C.RESET} ").strip()
         except (KeyboardInterrupt, EOFError):
             print(f"\n{C.DIM}  Goodbye!{C.RESET}")
             break

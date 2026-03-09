@@ -23,7 +23,7 @@ STRANGLE_DELTA_RANGE = (0.20, 0.40)   # target OTM — wider than straddle's 0.3
 ATM_EXCLUDE_DELTA   = 0.42            # exclude contracts too close to ATM (those belong to straddle)
 
 
-class LongStrangleIVStrategy(Strategy):
+class LongStrangleEarningsStrategy(Strategy):
     def generate_candidates(
         self,
         market: Provider,

@@ -7,7 +7,7 @@ from app.models.models import OptionContract, StraddleCandidate
 from app.strategy.strategy import Strategy
 
 
-class LongStraddleIVStrategy(Strategy):
+class LongStraddleEarningsStrategy(Strategy):
     def generate_candidates(
         self,
         market: Provider,

@@ -138,11 +138,18 @@ def _call_claude(prompt: str, deep: bool = False) -> dict:
     with urllib.request.urlopen(req, timeout=90) as resp:
         data = json.loads(resp.read().decode("utf-8"))
 
-    text = " ".join(
-        block["text"]
+    # Server-side web search returns all blocks inline in one response.
+    # Multiple text blocks may appear (reasoning + final answer) — use the last one.
+    text_blocks = [
+        block["text"].strip()
         for block in data.get("content", [])
-        if block.get("type") == "text"
-    ).strip()
+        if block.get("type") == "text" and block.get("text", "").strip()
+    ]
+
+    if not text_blocks:
+        raise ValueError(f"No text in response. Types: {[b.get('type') for b in data.get('content', [])]}")
+
+    text = text_blocks[-1]
     text = text.replace("```json", "").replace("```", "").strip()
     return json.loads(text)
 
