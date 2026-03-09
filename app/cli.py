@@ -11,13 +11,13 @@ from app.config.config import config
 from app.util.display import Colors as C, print_candidates, print_strangle_candidates, print_iv_screen, print_history
 
 BANNER = C.WHITE + r"""
- ██████╗ ██████╗ ████████╗██╗ ██████╗ ███╗   ██╗███████╗ ██████╗██╗     ██╗
-██╔═══██╗██╔══██╗╚══██╔══╝██║██╔═══██╗████╗  ██║██╔════╝██╔════╝██║     ██║
-██║   ██║██████╔╝   ██║   ██║██║   ██║██╔██╗ ██║███████╗██║     ██║     ██║
-██║   ██║██╔═══╝    ██║   ██║██║   ██║██║╚██╗██║╚════██║██║     ██║     ██║
-╚██████╔╝██║        ██║   ██║╚██████╔╝██║ ╚████║███████║╚██████╗███████╗██║
- ╚═════╝ ╚═╝        ╚═╝   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝ ╚═════╝╚══════╝╚═╝
-                                   v1.0.0
+  ██████╗ ██████╗ ████████╗██╗ ██████╗ ███╗   ██╗███████╗ ██████╗██╗     ██╗
+ ██╔═══██╗██╔══██╗╚══██╔══╝██║██╔═══██╗████╗  ██║██╔════╝██╔════╝██║     ██║
+ ██║   ██║██████╔╝   ██║   ██║██║   ██║██╔██╗ ██║███████╗██║     ██║     ██║
+ ██║   ██║██╔═══╝    ██║   ██║██║   ██║██║╚██╗██║╚════██║██║     ██║     ██║
+ ╚██████╔╝██║        ██║   ██║╚██████╔╝██║ ╚████║███████║╚██████╗███████╗██║
+  ╚═════╝ ╚═╝        ╚═╝   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝ ╚═════╝╚══════╝╚═╝
+                          v1.0.0                          
 """ + C.RESET
 
 app = OptionsApp()
@@ -265,6 +265,11 @@ def start_pending(_commands: list[str]) -> None:
     print(f"  {C.DIM}Run 'sync' to update prices · 'analyze' for AI verdict · 'history' for resolved trades{C.RESET}\n")
 
 
+def start_visualize(_commands: list[str] = None) -> None:
+    from app.visualize.server import start_visualize as _viz
+    _viz(config.TRADE_DB_PATH)
+
+
 def start_watchlist(_commands: list[str]) -> None:
     from app.config.config import config
     tickers = sorted(config.STOCKS)
@@ -289,7 +294,8 @@ run_map = {
     "backtest":  start_backtest,
     "analyze":   start_analyze,
     "pending":   start_pending,
-    "watchlist": start_watchlist,
+    "watchlist":  start_watchlist,
+    "visualize":  start_visualize,
 }
 
 HELP_TEXT = f"""
@@ -302,6 +308,7 @@ HELP_TEXT = f"""
     {C.CYAN}analyze{C.RESET}                         AI analysis — fast, training knowledge only
     {C.CYAN}analyze deep{C.RESET}                    AI analysis — Sonnet + live web search (~$0.02/ticker)
     {C.CYAN}pending{C.RESET}                         Show all pending trades
+    {C.CYAN}visualize{C.RESET}                       Open performance dashboard in browser
     {C.CYAN}watchlist{C.RESET}                       Show configured watchlist tickers
     {C.CYAN}help{C.RESET}                            Show this message
     {C.CYAN}exit{C.RESET}                            Quit
