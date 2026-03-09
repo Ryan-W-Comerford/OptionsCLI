@@ -1,4 +1,5 @@
 app/data/cache/earnings_cache.csv
+app/data/cache/earnings.csv
 app/data/history/trades.db
 **/secrets.yaml
 **/api_secrets.yaml

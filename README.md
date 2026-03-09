@@ -245,7 +245,7 @@ app/
 │   ├── alpha_vantage.py    Earnings calendar (12hr cache)
 │   ├── trade_store.py      SQLite trade history DB
 │   └── cache/
-│       └── earnings_cache.csv
+│       └── earnings.csv
 ├── models/
 │   └── models.py           Pydantic data models
 ├── strategy/

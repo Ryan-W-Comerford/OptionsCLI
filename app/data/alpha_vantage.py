@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 
 from app.data.provider import Provider
 
-CACHE_FILE = "app/data/cache/earnings_cache.csv"
+CACHE_FILE = "app/data/cache/earnings.csv"
 CACHE_TTL_HOURS = 12
 
 
